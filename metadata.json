@@ -1,0 +1,5 @@
+{
+  "name": "AR Menu Pro",
+  "description": "A digital restaurant menu with Augmented Reality 3D models and QR code integration.",
+  "requestFramePermissions": ["camera"]
+}

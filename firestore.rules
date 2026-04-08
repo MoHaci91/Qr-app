@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: products
+    // Fields:
+    //   - name: string (required, 1-100 chars)
+    //   - price: number (required, positive)
+    //   - description: string (optional, 0-1000 chars)
+    //   - modelUrl: string (required, valid URL)
+    //   - imageUrl: string (optional, valid URL)
+    //   - qrCodeUrl: string (optional, valid URL)
+    //   - scanCount: number (required, >= 0)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: products/{productId}/scans
+    // Fields:
+    //   - productId: string (required)
+    //   - timestamp: timestamp (required)
+    //   - userAgent: string (optional)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "haci.mohammad.au@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll(['name', 'price', 'modelUrl', 'scanCount', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.price is number && data.price >= 0 &&
+             data.modelUrl is string && data.modelUrl.matches("^https?://.*") &&
+             data.scanCount is number && data.scanCount >= 0 &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidScan(data) {
+      return data.keys().hasAll(['productId', 'timestamp']) &&
+             data.productId is string &&
+             data.timestamp is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /products/{productId} {
+      // Public can read products to view them in AR
+      allow read: if true;
+      
+      // Only admins can create/update/delete products
+      allow create: if isAdmin() && isValidProduct(request.resource.data);
+      allow update: if (isAdmin() && isValidProduct(request.resource.data)) || 
+                      (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['scanCount']) && 
+                       request.resource.data.scanCount == resource.data.scanCount + 1);
+      allow delete: if isAdmin();
+
+      match /scans/{scanId} {
+        // Public can create scans when viewing a product
+        allow create: if isValidScan(request.resource.data);
+        // Only admins can read scan history
+        allow read: if isAdmin();
+      }
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow write: if isAdmin();
+    }
+  }
+}
